@@ -5,7 +5,7 @@
     <AssemblyName>VGMarketInfo</AssemblyName>
     <Product>VG Market Info</Product>
     <Description>Tracks trade item prices across stations — best buy/sell locations.</Description>
-    <Version>1.0.0</Version>
+    <Version>1.1.0</Version>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <LangVersion>latest</LangVersion>
     <RootNamespace>VGMarketInfo</RootNamespace>
@@ -27,6 +27,12 @@
     <Reference Include="Assembly-CSharp.dll">
       <HintPath>lib/Assembly-CSharp.dll</HintPath>
     </Reference>
+  </ItemGroup>
+
+  <!-- Exclude decompiled reference sources — for reading only, not for compilation -->
+  <ItemGroup>
+    <Compile Remove="decompiled/**/*.cs" />
+    <Compile Remove="lib/decompiled/**/*.cs" />
   </ItemGroup>
 
 </Project>
