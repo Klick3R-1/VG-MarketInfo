@@ -126,27 +126,8 @@ public class MarketDatabase
 
         if (!Items.TryGetValue(itemName, out var data))
         {
-            data = new ItemMarketData
-            {
-                ItemName = itemName,
-                BestBuyPrice = price,
-                BestBuyLocation = location,
-                BestSellPrice = price,
-                BestSellLocation = location,
-            };
+            data = new ItemMarketData { ItemName = itemName };
             Items[itemName] = data;
-        }
-
-        if (price < data.BestBuyPrice)
-        {
-            data.BestBuyPrice = price;
-            data.BestBuyLocation = location;
-        }
-
-        if (price > data.BestSellPrice)
-        {
-            data.BestSellPrice = price;
-            data.BestSellLocation = location;
         }
 
         data.StationPrices ??= new();
@@ -154,6 +135,18 @@ public class MarketDatabase
 
         data.StationSupply ??= new();
         data.StationSupply[location] = supply;
+
+        // Recompute best buy/sell from all known prices so stale values
+        // are corrected whenever a station's price changes on revisit.
+        data.BestBuyPrice = float.MaxValue;
+        data.BestBuyLocation = "";
+        data.BestSellPrice = float.MinValue;
+        data.BestSellLocation = "";
+        foreach (var kvp in data.StationPrices)
+        {
+            if (kvp.Value < data.BestBuyPrice) { data.BestBuyPrice = kvp.Value; data.BestBuyLocation = kvp.Key; }
+            if (kvp.Value > data.BestSellPrice) { data.BestSellPrice = kvp.Value; data.BestSellLocation = kvp.Key; }
+        }
 
         if (elapsedTime > 0)
             StationLastVisited[location] = elapsedTime;
