@@ -5,7 +5,7 @@
     <AssemblyName>VGMarketInfo</AssemblyName>
     <Product>VG Market Info</Product>
     <Description>Tracks trade item prices across stations — best buy/sell locations.</Description>
-    <Version>1.1.1</Version>
+    <Version>1.1.2</Version>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <LangVersion>latest</LangVersion>
     <RootNamespace>VGMarketInfo</RootNamespace>

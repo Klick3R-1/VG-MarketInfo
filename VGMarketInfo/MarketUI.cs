@@ -57,6 +57,8 @@ public class MarketUI : MonoBehaviour
     private static GUIStyle _tabStyle;        // inactive tab toggle
     private static GUIStyle _tabOnStyle;      // active tab toggle
     private static GUIStyle _boxStyle;        // upgrade card box
+    private static GUIStyle _labelStyle;     // white textColor — color driven by GUI.contentColor
+    private static GUIStyle _sectorStyle;    // bold gold — upgrade card / section headers
     private static Texture2D _bgTex;
 
     // Price Board
@@ -159,6 +161,14 @@ public class MarketUI : MonoBehaviour
             _boxStyle = new GUIStyle(GUI.skin.box);
             _boxStyle.normal.background = boxBg;
             _boxStyle.normal.textColor  = Pal.Text;
+
+            // Label style — MUST use Color.white so GUI.contentColor drives all coloring
+            _labelStyle = new GUIStyle(GUI.skin.label);
+            _labelStyle.normal.textColor = Color.white;
+            _labelStyle.richText = true;
+
+            _sectorStyle = new GUIStyle(_labelStyle);
+            _sectorStyle.fontStyle = FontStyle.Bold;
         }
 
         GUI.color = new Color(1f, 1f, 1f, _uiAlpha.Value);
@@ -215,7 +225,6 @@ public class MarketUI : MonoBehaviour
         GUILayout.FlexibleSpace();
         if (IsLive)
         {
-            Color def2 = GUI.contentColor;
             GUI.contentColor = Pal.Green;
             var econ = GamePlayer.current?.GetStoryteller<Economy>();
             string countdown = "";
@@ -224,29 +233,44 @@ public class MarketUI : MonoBehaviour
                 int secs = Mathf.CeilToInt(econ.economyTimer);
                 countdown = $"  {secs / 60:D2}:{secs % 60:D2}";
             }
-            GUILayout.Label($"● LIVE{countdown}", GUILayout.Width(110));
-            GUI.contentColor = def2;
+            GUILayout.Label($"● LIVE{countdown}", _labelStyle, GUILayout.Width(110));
+            GUI.contentColor = Color.white;
         }
         GUILayout.EndHorizontal();
 
-        DrawPriceBoardHeader();
+        int[] colWidths = ComputeBoardWidths();
+        DrawPriceBoardHeader(colWidths);
         _boardScroll = GUILayout.BeginScrollView(_boardScroll);
-        DrawPriceBoardRows();
+        DrawPriceBoardRows(colWidths);
         GUILayout.EndScrollView();
 
+        GUI.contentColor = Pal.Muted;
         GUILayout.Label(
             $"{MarketDatabase.Instance.Items.Count} items tracked   |   " +
             $"{MarketDatabase.Instance.GetAllStations().Count()} stations visited   |   " +
             $"{_toggleKey.Value} to toggle",
-            GUILayout.ExpandWidth(true));
+            _labelStyle, GUILayout.ExpandWidth(true));
+        GUI.contentColor = Color.white;
     }
 
-    private void DrawPriceBoardHeader()
+    private int[] ComputeBoardWidths()
     {
-        bool live = IsLive;
-        int[]    widths  = live ? OverviewLiveWidths  : OverviewWidths;
-        string[] labels  = live ? OverviewLiveLabels  : OverviewLabels;
-        var      sortable = live ? new HashSet<int> { 0, 1, 4 } : new HashSet<int> { 0, 1, 4 };
+        int[] baseWidths = IsLive ? OverviewLiveWidths : OverviewWidths;
+        float available  = _windowRect.width - 34f; // window chrome (~8px each side) + scrollbar (16px) + margin
+        float baseTotal  = 0f;
+        foreach (int bw in baseWidths) baseTotal += bw;
+        float scale = available / baseTotal;
+        var result = new int[baseWidths.Length];
+        for (int i = 0; i < baseWidths.Length; i++)
+            result[i] = Mathf.Max(20, Mathf.FloorToInt(baseWidths[i] * scale));
+        return result;
+    }
+
+    private void DrawPriceBoardHeader(int[] widths)
+    {
+        bool     live    = IsLive;
+        string[] labels  = live ? OverviewLiveLabels : OverviewLabels;
+        var      sortable = new HashSet<int> { 0, 1, 4 };
 
         GUILayout.BeginHorizontal();
         for (int i = 0; i < labels.Length; i++)
@@ -262,13 +286,15 @@ public class MarketUI : MonoBehaviour
             }
             else
             {
-                GUILayout.Label(labels[i], GUILayout.Width(widths[i]));
+                GUI.contentColor = Pal.Muted;
+                GUILayout.Label(labels[i], _labelStyle, GUILayout.Width(widths[i]));
+                GUI.contentColor = Color.white;
             }
         }
         GUILayout.EndHorizontal();
     }
 
-    private void DrawPriceBoardRows()
+    private void DrawPriceBoardRows(int[] w)
     {
         var items = MarketDatabase.Instance.Items.Values.ToList();
         bool live = IsLive;
@@ -291,44 +317,44 @@ public class MarketUI : MonoBehaviour
             return;
         }
 
-        int[]  w       = live ? OverviewLiveWidths : OverviewWidths;
-        var    visited = MarketDatabase.Instance.StationLastVisited;
-        Color  def     = GUI.contentColor;
+        var visited = MarketDatabase.Instance.StationLastVisited;
 
         foreach (var item in items)
         {
             GUILayout.BeginHorizontal();
-            GUILayout.Label(item.ItemName, GUILayout.Width(w[0]));
+            GUILayout.Label(item.ItemName, _labelStyle, GUILayout.Width(w[0]));
 
             GUI.contentColor = item.BestBuyPrice == float.MaxValue ? Pal.Muted : Pal.Cyan;
-            GUILayout.Label(item.BestBuyPrice == float.MaxValue ? "-" : $"{item.BestBuyPrice:N0}", GUILayout.Width(w[1]));
-            GUI.contentColor = def;
-            GUILayout.Label(item.BestBuyLocation, GUILayout.Width(w[2]));
+            GUILayout.Label(item.BestBuyPrice == float.MaxValue ? "-" : $"{item.BestBuyPrice:N0}", _labelStyle, GUILayout.Width(w[1]));
+            GUI.contentColor = Pal.Cyan;
+            GUILayout.Label(item.BestBuyLocation, _labelStyle, GUILayout.Width(w[2]));
+            GUI.contentColor = Color.white;
 
             if (live)
             {
                 // Qty column (w[3])
                 int supply = item.StationSupply != null && item.StationSupply.TryGetValue(item.BestBuyLocation, out var s) ? s : -1;
                 GUI.contentColor = supply == 0 ? Pal.Red : supply < 0 ? Pal.Muted : Pal.Text;
-                GUILayout.Label(supply < 0 ? "-" : supply.ToString(), GUILayout.Width(w[3]));
-                GUI.contentColor = def;
+                GUILayout.Label(supply < 0 ? "-" : supply.ToString(), _labelStyle, GUILayout.Width(w[3]));
+                GUI.contentColor = Color.white;
             }
             else
             {
                 GUI.contentColor = Pal.Muted;
-                GUILayout.Label(visited.TryGetValue(item.BestBuyLocation, out var buyDt) ? AgeString(buyDt) : "-", GUILayout.Width(w[3]));
-                GUI.contentColor = def;
+                GUILayout.Label(visited.TryGetValue(item.BestBuyLocation, out var buyDt) ? AgeString(buyDt) : "-", _labelStyle, GUILayout.Width(w[3]));
+                GUI.contentColor = Color.white;
             }
 
             GUI.contentColor = item.BestSellPrice == float.MinValue ? Pal.Muted : Pal.Green;
-            GUILayout.Label(item.BestSellPrice == float.MinValue ? "-" : $"{item.BestSellPrice:N0}", GUILayout.Width(w[4]));
-            GUI.contentColor = def;
-            GUILayout.Label(item.BestSellLocation, GUILayout.Width(w[5]));
+            GUILayout.Label(item.BestSellPrice == float.MinValue ? "-" : $"{item.BestSellPrice:N0}", _labelStyle, GUILayout.Width(w[4]));
+            GUI.contentColor = Pal.Cyan;
+            GUILayout.Label(item.BestSellLocation, _labelStyle, GUILayout.Width(w[5]));
+            GUI.contentColor = Color.white;
             if (!live)
             {
                 GUI.contentColor = Pal.Muted;
-                GUILayout.Label(visited.TryGetValue(item.BestSellLocation, out var sellDt) ? AgeString(sellDt) : "-", GUILayout.Width(w[6]));
-                GUI.contentColor = def;
+                GUILayout.Label(visited.TryGetValue(item.BestSellLocation, out var sellDt) ? AgeString(sellDt) : "-", _labelStyle, GUILayout.Width(w[6]));
+                GUI.contentColor = Color.white;
             }
 
             GUILayout.EndHorizontal();
@@ -357,7 +383,9 @@ public class MarketUI : MonoBehaviour
         }
 
         GUILayout.BeginHorizontal();
-        GUILayout.Label("Export From:", GUILayout.Width(85));
+        GUI.contentColor = Pal.Muted;
+        GUILayout.Label("Export From:", _labelStyle, GUILayout.Width(85));
+        GUI.contentColor = Color.white;
         string btnLabel = string.IsNullOrEmpty(_exportStation) ? "Select Station  ▼" : _exportStation + "  ▼";
         if (GUILayout.Button(btnLabel, _btnStyle, GUILayout.Width(340)))
             _showExportDropdown = !_showExportDropdown;
@@ -408,7 +436,9 @@ public class MarketUI : MonoBehaviour
             }
             else
             {
-                GUILayout.Label(ExportLabels[i], GUILayout.Width(ExportWidths[i]));
+                GUI.contentColor = Pal.Muted;
+                GUILayout.Label(ExportLabels[i], _labelStyle, GUILayout.Width(ExportWidths[i]));
+                GUI.contentColor = Color.white;
             }
         }
         GUILayout.EndHorizontal();
@@ -452,20 +482,19 @@ public class MarketUI : MonoBehaviour
             return;
         }
 
-        Color def = GUI.contentColor;
         foreach (var (data, buyPrice, destinations, bestProfit) in rows)
         {
             if (destinations.Count == 0)
             {
                 GUILayout.BeginHorizontal();
-                GUILayout.Label(data.ItemName, GUILayout.Width(ExportWidths[0]));
+                GUILayout.Label(data.ItemName, _labelStyle, GUILayout.Width(ExportWidths[0]));
                 GUI.contentColor = Pal.Cyan;
-                GUILayout.Label($"{buyPrice:N0}", GUILayout.Width(ExportWidths[1]));
+                GUILayout.Label($"{buyPrice:N0}", _labelStyle, GUILayout.Width(ExportWidths[1]));
                 GUI.contentColor = Pal.Muted;
-                GUILayout.Label("-", GUILayout.Width(ExportWidths[2]));
-                GUILayout.Label("-", GUILayout.Width(ExportWidths[3]));
-                GUILayout.Label("-", GUILayout.Width(ExportWidths[4]));
-                GUI.contentColor = def;
+                GUILayout.Label("-", _labelStyle, GUILayout.Width(ExportWidths[2]));
+                GUILayout.Label("-", _labelStyle, GUILayout.Width(ExportWidths[3]));
+                GUILayout.Label("-", _labelStyle, GUILayout.Width(ExportWidths[4]));
+                GUI.contentColor = Color.white;
                 GUILayout.EndHorizontal();
                 DrawSeparator();
                 continue;
@@ -477,23 +506,23 @@ public class MarketUI : MonoBehaviour
                 GUILayout.BeginHorizontal();
                 if (first)
                 {
-                    GUILayout.Label(data.ItemName, GUILayout.Width(ExportWidths[0]));
+                    GUILayout.Label(data.ItemName, _labelStyle, GUILayout.Width(ExportWidths[0]));
                     GUI.contentColor = Pal.Cyan;
-                    GUILayout.Label($"{buyPrice:N0}", GUILayout.Width(ExportWidths[1]));
-                    GUI.contentColor = def;
+                    GUILayout.Label($"{buyPrice:N0}", _labelStyle, GUILayout.Width(ExportWidths[1]));
+                    GUI.contentColor = Color.white;
                 }
                 else
                 {
-                    GUILayout.Label("", GUILayout.Width(ExportWidths[0]));
-                    GUILayout.Label("", GUILayout.Width(ExportWidths[1]));
+                    GUILayout.Label("", _labelStyle, GUILayout.Width(ExportWidths[0]));
+                    GUILayout.Label("", _labelStyle, GUILayout.Width(ExportWidths[1]));
                 }
                 GUI.contentColor = Pal.Green;
-                GUILayout.Label($"{sellPrice:N0}", GUILayout.Width(ExportWidths[2]));
-                GUI.contentColor = def;
-                GUILayout.Label(station, GUILayout.Width(ExportWidths[3]));
+                GUILayout.Label($"{sellPrice:N0}", _labelStyle, GUILayout.Width(ExportWidths[2]));
+                GUI.contentColor = Pal.Cyan;
+                GUILayout.Label(station, _labelStyle, GUILayout.Width(ExportWidths[3]));
                 GUI.contentColor = profit > 0 ? Pal.Green : Pal.Red;
-                GUILayout.Label($"{profit:N0}", GUILayout.Width(ExportWidths[4]));
-                GUI.contentColor = def;
+                GUILayout.Label($"{profit:N0}", _labelStyle, GUILayout.Width(ExportWidths[4]));
+                GUI.contentColor = Color.white;
                 GUILayout.EndHorizontal();
                 first = false;
             }
@@ -516,7 +545,9 @@ public class MarketUI : MonoBehaviour
         }
 
         GUILayout.BeginHorizontal();
-        GUILayout.Label("Import To:", GUILayout.Width(85));
+        GUI.contentColor = Pal.Muted;
+        GUILayout.Label("Import To:", _labelStyle, GUILayout.Width(85));
+        GUI.contentColor = Color.white;
         string btnLabel = string.IsNullOrEmpty(_importStation) ? "Select Station  ▼" : _importStation + "  ▼";
         if (GUILayout.Button(btnLabel, _btnStyle, GUILayout.Width(340)))
             _showImportDropdown = !_showImportDropdown;
@@ -574,7 +605,9 @@ public class MarketUI : MonoBehaviour
             }
             else
             {
-                GUILayout.Label(ImportLabels[i], GUILayout.Width(ImportWidths[i]));
+                GUI.contentColor = Pal.Muted;
+                GUILayout.Label(ImportLabels[i], _labelStyle, GUILayout.Width(ImportWidths[i]));
+                GUI.contentColor = Color.white;
             }
         }
         GUILayout.EndHorizontal();
@@ -618,20 +651,19 @@ public class MarketUI : MonoBehaviour
             return;
         }
 
-        Color def = GUI.contentColor;
         foreach (var (data, sellPrice, sources, bestProfit) in rows)
         {
             if (sources.Count == 0)
             {
                 GUILayout.BeginHorizontal();
-                GUILayout.Label(data.ItemName, GUILayout.Width(ImportWidths[0]));
+                GUILayout.Label(data.ItemName, _labelStyle, GUILayout.Width(ImportWidths[0]));
                 GUI.contentColor = Pal.Green;
-                GUILayout.Label($"{sellPrice:N0}", GUILayout.Width(ImportWidths[1]));
+                GUILayout.Label($"{sellPrice:N0}", _labelStyle, GUILayout.Width(ImportWidths[1]));
                 GUI.contentColor = Pal.Muted;
-                GUILayout.Label("-", GUILayout.Width(ImportWidths[2]));
-                GUILayout.Label("-", GUILayout.Width(ImportWidths[3]));
-                GUILayout.Label("-", GUILayout.Width(ImportWidths[4]));
-                GUI.contentColor = def;
+                GUILayout.Label("-", _labelStyle, GUILayout.Width(ImportWidths[2]));
+                GUILayout.Label("-", _labelStyle, GUILayout.Width(ImportWidths[3]));
+                GUILayout.Label("-", _labelStyle, GUILayout.Width(ImportWidths[4]));
+                GUI.contentColor = Color.white;
                 GUILayout.EndHorizontal();
                 DrawSeparator();
                 continue;
@@ -643,23 +675,23 @@ public class MarketUI : MonoBehaviour
                 GUILayout.BeginHorizontal();
                 if (first)
                 {
-                    GUILayout.Label(data.ItemName, GUILayout.Width(ImportWidths[0]));
+                    GUILayout.Label(data.ItemName, _labelStyle, GUILayout.Width(ImportWidths[0]));
                     GUI.contentColor = Pal.Green;
-                    GUILayout.Label($"{sellPrice:N0}", GUILayout.Width(ImportWidths[1]));
-                    GUI.contentColor = def;
+                    GUILayout.Label($"{sellPrice:N0}", _labelStyle, GUILayout.Width(ImportWidths[1]));
+                    GUI.contentColor = Color.white;
                 }
                 else
                 {
-                    GUILayout.Label("", GUILayout.Width(ImportWidths[0]));
-                    GUILayout.Label("", GUILayout.Width(ImportWidths[1]));
+                    GUILayout.Label("", _labelStyle, GUILayout.Width(ImportWidths[0]));
+                    GUILayout.Label("", _labelStyle, GUILayout.Width(ImportWidths[1]));
                 }
                 GUI.contentColor = Pal.Cyan;
-                GUILayout.Label($"{buyPrice:N0}", GUILayout.Width(ImportWidths[2]));
-                GUI.contentColor = def;
-                GUILayout.Label(station, GUILayout.Width(ImportWidths[3]));
+                GUILayout.Label($"{buyPrice:N0}", _labelStyle, GUILayout.Width(ImportWidths[2]));
+                GUI.contentColor = Pal.Cyan;
+                GUILayout.Label(station, _labelStyle, GUILayout.Width(ImportWidths[3]));
                 GUI.contentColor = profit > 0 ? Pal.Green : Pal.Red;
-                GUILayout.Label($"{profit:N0}", GUILayout.Width(ImportWidths[4]));
-                GUI.contentColor = def;
+                GUILayout.Label($"{profit:N0}", _labelStyle, GUILayout.Width(ImportWidths[4]));
+                GUI.contentColor = Color.white;
                 GUILayout.EndHorizontal();
                 first = false;
             }
@@ -673,22 +705,23 @@ public class MarketUI : MonoBehaviour
     private const long MarketFeedCost   = 1000L;
     private const long TradeRoutesCost  = 1000L;
 #else
-    private const long MarketFeedCost   = 5_000_000L;
-    private const long TradeRoutesCost  = 1_000_000L;
+    private const long MarketFeedCost   = 1_000_000L;
+    private const long TradeRoutesCost  = 500_000L;
 #endif
 
     private void DrawUpgradesTab()
     {
-        var   db  = MarketDatabase.Instance;
-        Color def = GUI.contentColor;
+        var db = MarketDatabase.Instance;
 
         GUILayout.Space(8);
 
         // --- Market Feed ---
         GUILayout.BeginVertical(_boxStyle);
         GUILayout.BeginHorizontal();
-        GUILayout.Label("Market Feed", GUILayout.Width(200));
-        GUILayout.Label($"{MarketFeedCost:N0} cr", GUILayout.ExpandWidth(true));
+        GUI.contentColor = Pal.Gold;
+        GUILayout.Label("Market Feed", _sectorStyle, GUILayout.Width(200));
+        GUILayout.Label($"{MarketFeedCost:N0} cr", _labelStyle, GUILayout.ExpandWidth(true));
+        GUI.contentColor = Color.white;
         GUILayout.EndHorizontal();
         GUILayout.Label("Automatically refreshes prices at all known stations on each economy tick.", GUILayout.ExpandWidth(true));
         GUILayout.BeginHorizontal();
@@ -696,8 +729,8 @@ public class MarketUI : MonoBehaviour
         if (db.MarketFeedUnlocked)
         {
             GUI.contentColor = Pal.Green;
-            GUILayout.Label("● Purchased", GUILayout.Width(100));
-            GUI.contentColor = def;
+            GUILayout.Label("● Purchased", _labelStyle, GUILayout.Width(100));
+            GUI.contentColor = Color.white;
         }
         else
         {
@@ -721,8 +754,10 @@ public class MarketUI : MonoBehaviour
         // --- Trade Routes ---
         GUILayout.BeginVertical(_boxStyle);
         GUILayout.BeginHorizontal();
-        GUILayout.Label("Trade Routes", GUILayout.Width(200));
-        GUILayout.Label($"{TradeRoutesCost:N0} cr", GUILayout.ExpandWidth(true));
+        GUI.contentColor = Pal.Gold;
+        GUILayout.Label("Trade Routes", _sectorStyle, GUILayout.Width(200));
+        GUILayout.Label($"{TradeRoutesCost:N0} cr", _labelStyle, GUILayout.ExpandWidth(true));
+        GUI.contentColor = Color.white;
         GUILayout.EndHorizontal();
         GUILayout.Label("Unlocks the Export and Import tabs. Export shows the best selling destinations for items at any known station. Import shows what to haul to a destination and where to source it cheapest.", GUILayout.ExpandWidth(true));
         GUILayout.BeginHorizontal();
@@ -730,8 +765,8 @@ public class MarketUI : MonoBehaviour
         if (db.TradeRoutesUnlocked)
         {
             GUI.contentColor = Pal.Green;
-            GUILayout.Label("● Purchased", GUILayout.Width(100));
-            GUI.contentColor = def;
+            GUILayout.Label("● Purchased", _labelStyle, GUILayout.Width(100));
+            GUI.contentColor = Color.white;
         }
         else
         {
