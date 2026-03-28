@@ -42,7 +42,7 @@ public class SaveFile
 
 public static class DatabaseMigration
 {
-    public const string CurrentVersion = "1.1.0";
+    public const string CurrentVersion = "1.1.3";
 
     // Each entry: target version + action that brings the save up to that version.
     // Always append new entries — never edit existing ones.
@@ -62,6 +62,12 @@ public static class DatabaseMigration
             // Timestamps switched from DateTime to double (in-game seconds).
             // Old DateTime values were zeroed during JObject pre-processing in Load() —
             // zero means "unknown age", which is safe and honest.
+        }),
+        ("1.1.3", f =>
+        {
+            // Station location keys changed from "Station (System)" to "Station (Sector)".
+            // Actual key renaming is deferred to Plugin.TryLocationKeyMigration() because
+            // it requires the live game map which isn't available at load time.
         }),
     };
 
@@ -116,6 +122,10 @@ public class MarketDatabase
     // Updated every frame by Plugin.Update when GamePlayer is available.
     // Used by AgeString so it never needs to call GamePlayer.current at render time.
     public double CurrentElapsedTime { get; set; } = 0;
+
+    // Set by Load() when the save predates 1.1.3. Triggers a deferred key migration
+    // in Plugin.TryLocationKeyMigration() once the game map is available.
+    public bool NeedsLocationKeyMigration { get; set; } = false;
 
     private static string SavePath => Path.Combine(Paths.ConfigPath, "VGMarketInfo_data.json");
 
@@ -175,6 +185,48 @@ public class MarketDatabase
         Items.Remove(itemName);
     }
 
+    public void MigrateLocationKeys(Dictionary<string, string> systemToSector)
+    {
+        string Remap(string location)
+        {
+            if (string.IsNullOrEmpty(location)) return location;
+            var open  = location.LastIndexOf('(');
+            var close = location.LastIndexOf(')');
+            if (open < 0 || close < open) return location;
+            var inner = location.Substring(open + 1, close - open - 1);
+            return systemToSector.TryGetValue(inner, out var sector)
+                ? location.Substring(0, open + 1) + sector + ")"
+                : location;
+        }
+
+        foreach (var item in Items.Values)
+        {
+            if (item.StationPrices != null)
+            {
+                var updated = new Dictionary<string, float>();
+                foreach (var kvp in item.StationPrices) updated[Remap(kvp.Key)] = kvp.Value;
+                item.StationPrices = updated;
+            }
+            if (item.StationSupply != null)
+            {
+                var updated = new Dictionary<string, int>();
+                foreach (var kvp in item.StationSupply) updated[Remap(kvp.Key)] = kvp.Value;
+                item.StationSupply = updated;
+            }
+            item.BestBuyLocation  = Remap(item.BestBuyLocation);
+            item.BestSellLocation = Remap(item.BestSellLocation);
+            item.LastSeenLocation = Remap(item.LastSeenLocation);
+        }
+
+        var newVisited = new Dictionary<string, double>();
+        foreach (var kvp in StationLastVisited) newVisited[Remap(kvp.Key)] = kvp.Value;
+        StationLastVisited = newVisited;
+
+        NeedsLocationKeyMigration = false;
+        Plugin.Log.LogInfo("[Migration 1.1.3] Location keys updated from system to sector naming.");
+        Save();
+    }
+
     public void Save()
     {
         try
@@ -232,7 +284,10 @@ public class MarketDatabase
                 };
             }
 
+            var preVersion = Version.TryParse(file.Version ?? "0.0.0", out var pv) ? pv : new Version(0, 0, 0);
             DatabaseMigration.Run(file, Plugin.Log);
+            if (preVersion < new Version(1, 1, 3))
+                NeedsLocationKeyMigration = true;
 
             Items = file.Items ?? new();
             StationLastVisited = file.StationLastVisited ?? new();

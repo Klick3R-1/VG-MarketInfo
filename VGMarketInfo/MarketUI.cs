@@ -363,8 +363,10 @@ public class MarketUI : MonoBehaviour
 
     // ── Export (From Station) ────────────────────────────────────────────────
 
-    private static readonly int[]    ExportWidths = { 200, 100, 100, 270, 80 };
-    private static readonly string[] ExportLabels = { "Item", "Buy Here", "Sell Price", "Sell At", "Profit" };
+    private static readonly int[]    ExportWidths     = { 200, 100,      100, 270, 80 };
+    private static readonly string[] ExportLabels     = { "Item", "Buy Here", "Sell Price", "Sell At", "Profit" };
+    private static readonly int[]    ExportLiveWidths = { 175, 90, 50,   90, 240, 80 };
+    private static readonly string[] ExportLiveLabels = { "Item", "Buy Here", "Qty", "Sell Price", "Sell At", "Profit" };
 
     private void DrawExportTab()
     {
@@ -408,27 +410,32 @@ public class MarketUI : MonoBehaviour
             GUILayout.EndScrollView();
         }
 
+        bool exportLive = IsLive;
+        int[] exportW   = exportLive ? ExportLiveWidths : ExportWidths;
+
         if (!string.IsNullOrEmpty(_exportStation))
-            DrawExportHeader();
+            DrawExportHeader(exportW, exportLive);
 
         _exportScroll = GUILayout.BeginScrollView(_exportScroll);
         if (string.IsNullOrEmpty(_exportStation))
             GUILayout.Label("Select a source station to view export opportunities.");
         else
-            DrawExportRows();
+            DrawExportRows(exportW, exportLive);
         GUILayout.EndScrollView();
     }
 
-    private void DrawExportHeader()
+    private void DrawExportHeader(int[] w, bool live)
     {
-        var sortable = new HashSet<int> { 0, 1, 4 };
+        string[] labels  = live ? ExportLiveLabels : ExportLabels;
+        int      profitI = live ? 5 : 4;
+        var sortable = new HashSet<int> { 0, 1, profitI };
         GUILayout.BeginHorizontal();
-        for (int i = 0; i < ExportLabels.Length; i++)
+        for (int i = 0; i < labels.Length; i++)
         {
             if (sortable.Contains(i))
             {
                 string arrow = _exportSortCol == i ? (_exportSortAsc ? " ▲" : " ▼") : "";
-                if (GUILayout.Button(ExportLabels[i] + arrow, _btnStyle, GUILayout.Width(ExportWidths[i])))
+                if (GUILayout.Button(labels[i] + arrow, _btnStyle, GUILayout.Width(w[i])))
                 {
                     if (_exportSortCol == i) _exportSortAsc = !_exportSortAsc;
                     else { _exportSortCol = i; _exportSortAsc = true; }
@@ -437,16 +444,16 @@ public class MarketUI : MonoBehaviour
             else
             {
                 GUI.contentColor = Pal.Muted;
-                GUILayout.Label(ExportLabels[i], _labelStyle, GUILayout.Width(ExportWidths[i]));
+                GUILayout.Label(labels[i], _labelStyle, GUILayout.Width(w[i]));
                 GUI.contentColor = Color.white;
             }
         }
         GUILayout.EndHorizontal();
     }
 
-    private void DrawExportRows()
+    private void DrawExportRows(int[] w, bool live)
     {
-        bool filterStock = MarketDatabase.Instance.MarketFeedUnlocked;
+        bool filterStock = live;
 
         var rows = MarketDatabase.Instance.Items.Values
             .Where(i => i.StationPrices != null && i.StationPrices.ContainsKey(_exportStation))
@@ -454,6 +461,7 @@ public class MarketUI : MonoBehaviour
             .Select(i =>
             {
                 float buyPrice = i.StationPrices[_exportStation];
+                int   supply   = live && i.StationSupply != null && i.StationSupply.TryGetValue(_exportStation, out int sq) ? sq : -1;
                 var destinations = i.StationPrices
                     .Where(kvp => kvp.Key != _exportStation)
                     .Select(kvp => (station: kvp.Key, sellPrice: kvp.Value, profit: kvp.Value - buyPrice))
@@ -461,7 +469,7 @@ public class MarketUI : MonoBehaviour
                     .Take(3)
                     .ToList();
                 float bestProfit = destinations.Count > 0 ? destinations[0].profit : float.MinValue;
-                return (data: i, buyPrice, destinations, bestProfit);
+                return (data: i, buyPrice, supply, destinations, bestProfit);
             })
             .ToList();
 
@@ -471,8 +479,8 @@ public class MarketUI : MonoBehaviour
             (0, false) => rows.OrderByDescending(r => r.data.ItemName).ToList(),
             (1, true)  => rows.OrderBy(r => r.buyPrice).ToList(),
             (1, false) => rows.OrderByDescending(r => r.buyPrice).ToList(),
-            (4, true)  => rows.OrderBy(r => r.bestProfit).ToList(),
-            (4, false) => rows.OrderByDescending(r => r.bestProfit).ToList(),
+            (4, true) or (5, true)   => rows.OrderBy(r => r.bestProfit).ToList(),
+            (4, false) or (5, false) => rows.OrderByDescending(r => r.bestProfit).ToList(),
             _ => rows.OrderByDescending(r => r.bestProfit).ToList(),
         };
 
@@ -482,18 +490,26 @@ public class MarketUI : MonoBehaviour
             return;
         }
 
-        foreach (var (data, buyPrice, destinations, bestProfit) in rows)
+        // Column index helpers
+        int iItem = 0, iBuyHere = 1, iQty = live ? 2 : -1, iSellPrice = live ? 3 : 2, iSellAt = live ? 4 : 3, iProfit = live ? 5 : 4;
+
+        foreach (var (data, buyPrice, supply, destinations, bestProfit) in rows)
         {
             if (destinations.Count == 0)
             {
                 GUILayout.BeginHorizontal();
-                GUILayout.Label(data.ItemName, _labelStyle, GUILayout.Width(ExportWidths[0]));
+                GUILayout.Label(data.ItemName, _labelStyle, GUILayout.Width(w[iItem]));
                 GUI.contentColor = Pal.Cyan;
-                GUILayout.Label($"{buyPrice:N0}", _labelStyle, GUILayout.Width(ExportWidths[1]));
+                GUILayout.Label($"{buyPrice:N0}", _labelStyle, GUILayout.Width(w[iBuyHere]));
+                if (live)
+                {
+                    GUI.contentColor = supply == 0 ? Pal.Red : supply < 0 ? Pal.Muted : Pal.Text;
+                    GUILayout.Label(supply < 0 ? "-" : supply.ToString(), _labelStyle, GUILayout.Width(w[iQty]));
+                }
                 GUI.contentColor = Pal.Muted;
-                GUILayout.Label("-", _labelStyle, GUILayout.Width(ExportWidths[2]));
-                GUILayout.Label("-", _labelStyle, GUILayout.Width(ExportWidths[3]));
-                GUILayout.Label("-", _labelStyle, GUILayout.Width(ExportWidths[4]));
+                GUILayout.Label("-", _labelStyle, GUILayout.Width(w[iSellPrice]));
+                GUILayout.Label("-", _labelStyle, GUILayout.Width(w[iSellAt]));
+                GUILayout.Label("-", _labelStyle, GUILayout.Width(w[iProfit]));
                 GUI.contentColor = Color.white;
                 GUILayout.EndHorizontal();
                 DrawSeparator();
@@ -506,22 +522,28 @@ public class MarketUI : MonoBehaviour
                 GUILayout.BeginHorizontal();
                 if (first)
                 {
-                    GUILayout.Label(data.ItemName, _labelStyle, GUILayout.Width(ExportWidths[0]));
+                    GUILayout.Label(data.ItemName, _labelStyle, GUILayout.Width(w[iItem]));
                     GUI.contentColor = Pal.Cyan;
-                    GUILayout.Label($"{buyPrice:N0}", _labelStyle, GUILayout.Width(ExportWidths[1]));
+                    GUILayout.Label($"{buyPrice:N0}", _labelStyle, GUILayout.Width(w[iBuyHere]));
+                    if (live)
+                    {
+                        GUI.contentColor = supply == 0 ? Pal.Red : supply < 0 ? Pal.Muted : Pal.Text;
+                        GUILayout.Label(supply < 0 ? "-" : supply.ToString(), _labelStyle, GUILayout.Width(w[iQty]));
+                    }
                     GUI.contentColor = Color.white;
                 }
                 else
                 {
-                    GUILayout.Label("", _labelStyle, GUILayout.Width(ExportWidths[0]));
-                    GUILayout.Label("", _labelStyle, GUILayout.Width(ExportWidths[1]));
+                    GUILayout.Label("", _labelStyle, GUILayout.Width(w[iItem]));
+                    GUILayout.Label("", _labelStyle, GUILayout.Width(w[iBuyHere]));
+                    if (live) GUILayout.Label("", _labelStyle, GUILayout.Width(w[iQty]));
                 }
                 GUI.contentColor = Pal.Green;
-                GUILayout.Label($"{sellPrice:N0}", _labelStyle, GUILayout.Width(ExportWidths[2]));
+                GUILayout.Label($"{sellPrice:N0}", _labelStyle, GUILayout.Width(w[iSellPrice]));
                 GUI.contentColor = Pal.Cyan;
-                GUILayout.Label(station, _labelStyle, GUILayout.Width(ExportWidths[3]));
+                GUILayout.Label(station, _labelStyle, GUILayout.Width(w[iSellAt]));
                 GUI.contentColor = profit > 0 ? Pal.Green : Pal.Red;
-                GUILayout.Label($"{profit:N0}", _labelStyle, GUILayout.Width(ExportWidths[4]));
+                GUILayout.Label($"{profit:N0}", _labelStyle, GUILayout.Width(w[iProfit]));
                 GUI.contentColor = Color.white;
                 GUILayout.EndHorizontal();
                 first = false;
@@ -532,8 +554,10 @@ public class MarketUI : MonoBehaviour
 
     // ── Import (To Station) ──────────────────────────────────────────────────
 
-    private static readonly int[]    ImportWidths = { 200, 100, 100, 270, 80 };
-    private static readonly string[] ImportLabels = { "Item", "Sell Price", "Buy Price", "Buy From", "Profit" };
+    private static readonly int[]    ImportWidths     = { 200, 100, 100,      270, 80 };
+    private static readonly string[] ImportLabels     = { "Item", "Sell Price", "Buy Price", "Buy From", "Profit" };
+    private static readonly int[]    ImportLiveWidths = { 175, 90, 90, 50,   240, 80 };
+    private static readonly string[] ImportLiveLabels = { "Item", "Sell Price", "Buy Price", "Qty", "Buy From", "Profit" };
 
     private void DrawImportTab()
     {
@@ -577,27 +601,32 @@ public class MarketUI : MonoBehaviour
             GUILayout.EndScrollView();
         }
 
+        bool importLive = IsLive;
+        int[] importW   = importLive ? ImportLiveWidths : ImportWidths;
+
         if (!string.IsNullOrEmpty(_importStation))
-            DrawImportHeader();
+            DrawImportHeader(importW, importLive);
 
         _importScroll = GUILayout.BeginScrollView(_importScroll);
         if (string.IsNullOrEmpty(_importStation))
             GUILayout.Label("Select a destination station to view import opportunities.");
         else
-            DrawImportRows();
+            DrawImportRows(importW, importLive);
         GUILayout.EndScrollView();
     }
 
-    private void DrawImportHeader()
+    private void DrawImportHeader(int[] w, bool live)
     {
-        var sortable = new HashSet<int> { 0, 1, 4 };
+        string[] labels  = live ? ImportLiveLabels : ImportLabels;
+        int      profitI = live ? 5 : 4;
+        var sortable = new HashSet<int> { 0, 1, profitI };
         GUILayout.BeginHorizontal();
-        for (int i = 0; i < ImportLabels.Length; i++)
+        for (int i = 0; i < labels.Length; i++)
         {
             if (sortable.Contains(i))
             {
                 string arrow = _importSortCol == i ? (_importSortAsc ? " ▲" : " ▼") : "";
-                if (GUILayout.Button(ImportLabels[i] + arrow, _btnStyle, GUILayout.Width(ImportWidths[i])))
+                if (GUILayout.Button(labels[i] + arrow, _btnStyle, GUILayout.Width(w[i])))
                 {
                     if (_importSortCol == i) _importSortAsc = !_importSortAsc;
                     else { _importSortCol = i; _importSortAsc = true; }
@@ -606,16 +635,16 @@ public class MarketUI : MonoBehaviour
             else
             {
                 GUI.contentColor = Pal.Muted;
-                GUILayout.Label(ImportLabels[i], _labelStyle, GUILayout.Width(ImportWidths[i]));
+                GUILayout.Label(labels[i], _labelStyle, GUILayout.Width(w[i]));
                 GUI.contentColor = Color.white;
             }
         }
         GUILayout.EndHorizontal();
     }
 
-    private void DrawImportRows()
+    private void DrawImportRows(int[] w, bool live)
     {
-        bool filterStock = MarketDatabase.Instance.MarketFeedUnlocked;
+        bool filterStock = live;
 
         var rows = MarketDatabase.Instance.Items.Values
             .Where(i => i.StationPrices != null && i.StationPrices.ContainsKey(_importStation))
@@ -625,7 +654,11 @@ public class MarketUI : MonoBehaviour
                 var sources = i.StationPrices
                     .Where(kvp => kvp.Key != _importStation)
                     .Where(kvp => !filterStock || !(i.StationSupply != null && i.StationSupply.TryGetValue(kvp.Key, out int ss) && ss == 0))
-                    .Select(kvp => (station: kvp.Key, buyPrice: kvp.Value, profit: sellPrice - kvp.Value))
+                    .Select(kvp =>
+                    {
+                        int sq = live && i.StationSupply != null && i.StationSupply.TryGetValue(kvp.Key, out int s) ? s : -1;
+                        return (station: kvp.Key, buyPrice: kvp.Value, supply: sq, profit: sellPrice - kvp.Value);
+                    })
                     .OrderByDescending(s => s.profit)
                     .Take(3)
                     .ToList();
@@ -640,8 +673,8 @@ public class MarketUI : MonoBehaviour
             (0, false) => rows.OrderByDescending(r => r.data.ItemName).ToList(),
             (1, true)  => rows.OrderBy(r => r.sellPrice).ToList(),
             (1, false) => rows.OrderByDescending(r => r.sellPrice).ToList(),
-            (4, true)  => rows.OrderBy(r => r.bestProfit).ToList(),
-            (4, false) => rows.OrderByDescending(r => r.bestProfit).ToList(),
+            (4, true) or (5, true)   => rows.OrderBy(r => r.bestProfit).ToList(),
+            (4, false) or (5, false) => rows.OrderByDescending(r => r.bestProfit).ToList(),
             _ => rows.OrderByDescending(r => r.bestProfit).ToList(),
         };
 
@@ -651,18 +684,22 @@ public class MarketUI : MonoBehaviour
             return;
         }
 
+        // Column index helpers
+        int iItem = 0, iSellPrice = 1, iBuyPrice = 2, iQty = live ? 3 : -1, iBuyFrom = live ? 4 : 3, iProfit = live ? 5 : 4;
+
         foreach (var (data, sellPrice, sources, bestProfit) in rows)
         {
             if (sources.Count == 0)
             {
                 GUILayout.BeginHorizontal();
-                GUILayout.Label(data.ItemName, _labelStyle, GUILayout.Width(ImportWidths[0]));
+                GUILayout.Label(data.ItemName, _labelStyle, GUILayout.Width(w[iItem]));
                 GUI.contentColor = Pal.Green;
-                GUILayout.Label($"{sellPrice:N0}", _labelStyle, GUILayout.Width(ImportWidths[1]));
+                GUILayout.Label($"{sellPrice:N0}", _labelStyle, GUILayout.Width(w[iSellPrice]));
                 GUI.contentColor = Pal.Muted;
-                GUILayout.Label("-", _labelStyle, GUILayout.Width(ImportWidths[2]));
-                GUILayout.Label("-", _labelStyle, GUILayout.Width(ImportWidths[3]));
-                GUILayout.Label("-", _labelStyle, GUILayout.Width(ImportWidths[4]));
+                GUILayout.Label("-", _labelStyle, GUILayout.Width(w[iBuyPrice]));
+                if (live) GUILayout.Label("-", _labelStyle, GUILayout.Width(w[iQty]));
+                GUILayout.Label("-", _labelStyle, GUILayout.Width(w[iBuyFrom]));
+                GUILayout.Label("-", _labelStyle, GUILayout.Width(w[iProfit]));
                 GUI.contentColor = Color.white;
                 GUILayout.EndHorizontal();
                 DrawSeparator();
@@ -670,27 +707,32 @@ public class MarketUI : MonoBehaviour
             }
 
             bool first = true;
-            foreach (var (station, buyPrice, profit) in sources)
+            foreach (var (station, buyPrice, supply, profit) in sources)
             {
                 GUILayout.BeginHorizontal();
                 if (first)
                 {
-                    GUILayout.Label(data.ItemName, _labelStyle, GUILayout.Width(ImportWidths[0]));
+                    GUILayout.Label(data.ItemName, _labelStyle, GUILayout.Width(w[iItem]));
                     GUI.contentColor = Pal.Green;
-                    GUILayout.Label($"{sellPrice:N0}", _labelStyle, GUILayout.Width(ImportWidths[1]));
+                    GUILayout.Label($"{sellPrice:N0}", _labelStyle, GUILayout.Width(w[iSellPrice]));
                     GUI.contentColor = Color.white;
                 }
                 else
                 {
-                    GUILayout.Label("", _labelStyle, GUILayout.Width(ImportWidths[0]));
-                    GUILayout.Label("", _labelStyle, GUILayout.Width(ImportWidths[1]));
+                    GUILayout.Label("", _labelStyle, GUILayout.Width(w[iItem]));
+                    GUILayout.Label("", _labelStyle, GUILayout.Width(w[iSellPrice]));
                 }
                 GUI.contentColor = Pal.Cyan;
-                GUILayout.Label($"{buyPrice:N0}", _labelStyle, GUILayout.Width(ImportWidths[2]));
+                GUILayout.Label($"{buyPrice:N0}", _labelStyle, GUILayout.Width(w[iBuyPrice]));
+                if (live)
+                {
+                    GUI.contentColor = supply == 0 ? Pal.Red : supply < 0 ? Pal.Muted : Pal.Text;
+                    GUILayout.Label(supply < 0 ? "-" : supply.ToString(), _labelStyle, GUILayout.Width(w[iQty]));
+                }
                 GUI.contentColor = Pal.Cyan;
-                GUILayout.Label(station, _labelStyle, GUILayout.Width(ImportWidths[3]));
+                GUILayout.Label(station, _labelStyle, GUILayout.Width(w[iBuyFrom]));
                 GUI.contentColor = profit > 0 ? Pal.Green : Pal.Red;
-                GUILayout.Label($"{profit:N0}", _labelStyle, GUILayout.Width(ImportWidths[4]));
+                GUILayout.Label($"{profit:N0}", _labelStyle, GUILayout.Width(w[iProfit]));
                 GUI.contentColor = Color.white;
                 GUILayout.EndHorizontal();
                 first = false;
@@ -850,7 +892,7 @@ public class MarketUI : MonoBehaviour
     private static string GetCurrentStationName()
     {
         if (GamePlayer.current?.currentPointOfInterest is SpaceStation station)
-            return $"{station.name} ({station.system?.name ?? "Unknown System"})";
+            return $"{station.name} ({station.system?.sector?.name ?? "Unknown Sector"})";
         return null;
     }
 

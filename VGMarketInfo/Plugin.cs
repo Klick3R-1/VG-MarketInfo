@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using BepInEx;
 using BepInEx.Configuration;
 using BepInEx.Logging;
@@ -55,6 +56,7 @@ public class Plugin : BaseUnityPlugin
         if (GamePlayer.current != null)
             MarketDatabase.Instance.CurrentElapsedTime = GamePlayer.current.elapsedTime;
 
+        TryLocationKeyMigration();
         TryReadMarketData();
         TryLiveFeedUpdate();
         TrySupplyRescan();
@@ -65,6 +67,21 @@ public class Plugin : BaseUnityPlugin
         MarketDatabase.Instance.Save();
     }
 
+    private void TryLocationKeyMigration()
+    {
+        if (!MarketDatabase.Instance.NeedsLocationKeyMigration) return;
+        if (GamePlayer.current?.map == null) return;
+
+        var systemToSector = new Dictionary<string, string>();
+        foreach (MapPointOfInterest poi in GamePlayer.current.map.allPointsOfInterest)
+        {
+            if (poi is SpaceStation station && station.system?.name != null && station.system.sector?.name != null)
+                systemToSector[station.system.name] = station.system.sector.name;
+        }
+
+        MarketDatabase.Instance.MigrateLocationKeys(systemToSector);
+    }
+
     private void TryReadMarketData()
     {
         if (GamePlayer.current == null) return;
@@ -72,9 +89,9 @@ public class Plugin : BaseUnityPlugin
         var poi = GamePlayer.current.currentPointOfInterest;
         if (poi is not SpaceStation station) return;
 
-        string systemName  = station.system?.name ?? "Unknown System";
+        string sectorName  = station.system?.sector?.name ?? "Unknown Sector";
         string stationName = station.name ?? "Unknown Station";
-        string location    = $"{stationName} ({systemName})";
+        string location    = $"{stationName} ({sectorName})";
 
         if (location == _lastStationName) return;
         _lastStationName = location;
@@ -112,7 +129,7 @@ public class Plugin : BaseUnityPlugin
         if (_supplyRescanTimer > 0f) return;
         _supplyRescanTimer = 1f;
 
-        string location = $"{station.name} ({station.system?.name ?? "Unknown System"})";
+        string location = $"{station.name} ({station.system?.sector?.name ?? "Unknown Sector"})";
         bool changed = false;
 
         foreach (LocalEconomyItem economyItem in station.economy.allItems)
@@ -146,8 +163,8 @@ public class Plugin : BaseUnityPlugin
         {
             if (poi is not SpaceStation station || station.economy == null) continue;
 
-            string systemName = station.system?.name ?? "Unknown System";
-            string location   = $"{station.name} ({systemName})";
+            string sectorName = station.system?.sector?.name ?? "Unknown Sector";
+            string location   = $"{station.name} ({sectorName})";
 
             if (!MarketDatabase.Instance.IsKnownStation(location)) continue;
 
